@@ -34,3 +34,5 @@ prompts/
 .env
 .env.local
 .env.*.local
+
+.trae
