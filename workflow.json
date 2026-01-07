@@ -1,0 +1,257 @@
+{
+  "name": "Web to Podcast Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-podcast",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.body.url }}",
+        "authentication": "none",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-webpage",
+      "name": "Fetch Webpage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.DOUBAO_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.DOUBAO_ENDPOINT_ID, messages: [{ role: 'system', content: '你是一个内容过滤专家。请从以下网页HTML中提取主要文章内容，去除导航、广告、页脚等无关内容。只保留文章的标题和正文。' }, { role: 'user', content: $json.data.substring(0, 30000) }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "filter-content",
+      "name": "Filter Content (Doubao)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+            650,
+            300
+          ]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+            "authentication": "none",
+            "sendHeaders": true,
+            "headerParameters": {
+              "parameters": [
+                {
+                  "name": "Authorization",
+                  "value": "=Bearer {{ $env.DOUBAO_API_KEY }}"
+                },
+                {
+                  "name": "Content-Type",
+                  "value": "application/json"
+                }
+              ]
+            },
+            "sendBody": true,
+            "specifyBody": "json",
+            "jsonBody": "={{ JSON.stringify({ model: $env.DOUBAO_ENDPOINT_ID, messages: [{ role: 'system', content: '你是一个专业的播客脚本撰写专家。请将以下文章内容改写成适合播客朗读的脚本。要求：1. 使用口语化的表达；2. 添加适当的过渡语；3. 保持内容的完整性和准确性；4. 控制在3000字以内。' }, { role: 'user', content: $json.choices[0].message.content }], temperature: 0.8 }) }}",
+            "options": {
+              "timeout": 120000
+            }
+          },
+          "id": "generate-script",
+          "name": "Generate Script (Doubao)",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [
+            850,
+            300
+          ]
+        },
+        {
+          "parameters": {
+            "jsCode": "const text = $json.choices[0].message.content;\nconst MAX_CHUNK_SIZE = 500;\nfunction splitTextIntoChunks(text, maxSize) {\n  const chunks = [];\n  const sentences = text.split(/(?<=[。！？\\n])/g);\n  let currentChunk = '';\n  for (const sentence of sentences) {\n    if (currentChunk.length + sentence.length <= maxSize) {\n      currentChunk += sentence;\n    } else {\n      if (currentChunk.trim()) chunks.push(currentChunk.trim());\n      if (sentence.length > maxSize) {\n        const words = sentence.split('');\n        let subChunk = '';\n        for (const char of words) {\n          if (subChunk.length + 1 <= maxSize) {\n            subChunk += char;\n          } else {\n            if (subChunk.trim()) chunks.push(subChunk.trim());\n            subChunk = char;\n          }\n        }\n        currentChunk = subChunk;\n      } else {\n        currentChunk = sentence;\n      }\n    }\n  }\n  if (currentChunk.trim()) chunks.push(currentChunk.trim());\n  return chunks;\n}\nconst chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE);\nconst timestamp = Date.now();\nreturn chunks.map((chunk, index) => ({ json: { text: chunk, chunkIndex: index, totalChunks: chunks.length, timestamp: timestamp } }));"
+          },
+          "id": "split-text",
+          "name": "Split Text into Chunks",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            1050,
+            300
+          ]
+        },
+        {
+          "parameters": {
+            "method": "POST",
+            "url": "https://openspeech.bytedance.com/api/v1/tts",
+            "authentication": "none",
+            "sendHeaders": true,
+            "headerParameters": {
+              "parameters": [
+                {
+                  "name": "x-api-key",
+                  "value": "={{ $env.DOUBAO_TTS_ACCESS_TOKEN }}"
+                },
+                {
+                  "name": "Content-Type",
+                  "value": "application/json"
+                }
+              ]
+            },
+            "sendBody": true,
+            "specifyBody": "json",
+            "jsonBody": "={{ JSON.stringify({ app: { cluster: 'volcano_tts' }, user: { uid: 'n8n-podcast' }, audio: { voice_type: 'BV001', encoding: 'mp3', speed_ratio: 1.0, volume_ratio: 1.0, pitch_ratio: 1.0 }, request: { reqid: String($json.timestamp) + '-' + String($json.chunkIndex), text: $json.text, operation: 'query' } }) }}",
+            "options": {
+              "timeout": 60000
+            }
+          },
+          "id": "tts-synthesis",
+          "name": "TTS Synthesis (Doubao)",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4.1,
+          "position": [
+            1250,
+            300
+          ]
+        },
+        {
+          "parameters": {
+            "jsCode": "const items = $input.all();\nconst fs = require('fs');\nconst outputDir = './output';\nif (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });\nconst timestamp = items[0].json.timestamp || Date.now();\nconst finalOutput = outputDir + '/podcast_' + timestamp + '.mp3';\nconst sortedItems = items.sort((a, b) => a.json.chunkIndex - b.json.chunkIndex);\nconst audioBuffers = [];\nfor (const item of sortedItems) {\n  if (item.json.data) {\n    const audioData = Buffer.from(item.json.data, 'base64');\n    audioBuffers.push(audioData);\n  }\n}\nconst combinedAudio = Buffer.concat(audioBuffers);\nfs.writeFileSync(finalOutput, combinedAudio);\nreturn [{ json: { podcast_file: finalOutput, size: combinedAudio.length, chunks: items.length } }];"
+          },
+          "id": "merge-audio",
+          "name": "Merge Audio Chunks",
+          "type": "n8n-nodes-base.code",
+          "typeVersion": 2,
+          "position": [
+            1450,
+            300
+          ]
+        },
+        {
+          "parameters": {
+            "respondWith": "json",
+            "responseBody": "={{ { success: true, podcast_url: $json.podcast_file, size: $json.size, chunks: $json.chunks } }}"
+          },
+          "id": "respond-webhook",
+          "name": "Respond to Webhook",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "position": [
+            1650,
+            300
+          ]
+        }
+      ],
+      "connections": {
+        "Webhook Trigger": {
+          "main": [
+            [
+              {
+                "node": "Fetch Webpage",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "Fetch Webpage": {
+          "main": [
+            [
+              {
+                "node": "Filter Content (Doubao)",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "Filter Content (Doubao)": {
+          "main": [
+            [
+              {
+                "node": "Generate Script (Doubao)",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "Generate Script (Doubao)": {
+          "main": [
+            [
+              {
+                "node": "Split Text into Chunks",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "Split Text into Chunks": {
+          "main": [
+            [
+              {
+                "node": "TTS Synthesis (Doubao)",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "TTS Synthesis (Doubao)": {
+          "main": [
+            [
+              {
+                "node": "Merge Audio Chunks",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        },
+        "Merge Audio Chunks": {
+          "main": [
+            [
+              {
+                "node": "Respond to Webhook",
+                "type": "main",
+                "index": 0
+              }
+            ]
+          ]
+        }
+      },
+      "settings": {
+        "executionOrder": "v1"
+      }
+    }
