@@ -165,8 +165,8 @@
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ { success: true, audio_data: $json.audio_data, chunks: $json.chunks, total_size: $json.total_size, timestamp: $json.timestamp } }}"
+        "respondWith": "binary",
+        "responseDataSource": "automatically"
       },
       "id": "respond-webhook",
       "name": "Respond to Webhook",
