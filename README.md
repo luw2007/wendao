@@ -240,20 +240,7 @@ mkdir -p output
 1. 打开 n8n 控制台（默认 http://localhost:5678）。
 2. 点击 "Import from file"，选择项目根目录下的 `workflow.json`。
 
-### 6. 配置 Prompt
-
-工作流中的三个关键节点需要手动配置 Prompt：
-
-#### Node: Filter Content (Doubao)
-将 `prompts/content_filter.txt` 的内容复制到该节点的 `messages` 参数中。
-
-#### Node: Generate Script (Doubao)
-将 `prompts/script_generation.txt` 的内容复制到该节点的 `messages` 参数中。
-
-#### Node: Select Voice Tone (Doubao)
-将 `prompts/voice_selection.txt` 的内容复制到该节点的 `messages` 参数中。
-
-### 7. 启动工作流并访问
+### 6. 启动工作流并访问
 
 1. 在 n8n 中激活工作流
 2. 打开浏览器访问：`http://localhost:5678/webhook/podcast`
@@ -267,27 +254,101 @@ curl -X POST http://localhost:5678/webhook/podcast \
   -d '{"url": "https://example.com/article"}'
 ```
 
-## 工作流程
+## 工作流程详解
 
+### 整体流程图
+
+```mermaid
+graph TB
+    A[用户访问 /webhook/podcast] --> B{请求方法}
+    B -->|GET| C[返回 HTML 页面]
+    B -->|POST| D[接收文章 URL]
+    
+    C --> E[用户输入文章链接]
+    E --> F[点击生成按钮]
+    F --> D
+    
+    D --> G[抓取网页内容]
+    G --> H[豆包 API: 过滤无效内容]
+    H --> I[豆包 API: 生成播客脚本]
+    I --> J[脚本分段<br/>每300字一段]
+    J --> K[豆包 TTS: 批量生成音频]
+    K --> L[合并音频片段]
+    L --> M[返回音频文件]
+    M --> N[前端播放/下载]
 ```
-用户输入 URL
-    ↓
-抓取网页内容
-    ↓
-豆包 API：过滤无效内容
-    ↓
-豆包 API：生成播客脚本
-    ↓
-豆包 API：选择音色类型
-    ↓
-脚本分段（每500字）
-    ↓
-豆包 TTS：批量生成音频
-    ↓
-ffmpeg：拼接音频文件
-    ↓
-返回播客文件路径
-```
+
+### 节点详细说明
+
+#### 1. **Serve HTML Page** (Webhook - GET)
+- **功能**：处理 GET 请求，返回前端页面
+- **路径**：`/webhook/podcast`
+- **响应**：HTML 页面（内嵌 CSS 和 JavaScript）
+
+#### 2. **Webhook Trigger** (Webhook - POST)
+- **功能**：接收用户提交的文章 URL
+- **路径**：`/webhook/podcast`
+- **输入**：`{ "url": "https://example.com/article" }`
+
+#### 3. **Fetch Webpage** (HTTP Request)
+- **功能**：抓取目标网页的 HTML 内容
+- **超时**：60 秒
+- **输出**：网页 HTML 源码
+
+#### 4. **Filter Content** (Doubao Chat API)
+- **功能**：使用 AI 过滤网页噪音，提取正文
+- **Prompt**：
+  ```
+  你是一个内容过滤专家。请从以下网页HTML中提取主要文章内容，
+  去除导航、广告、页脚等无关内容。只保留文章的标题和正文。
+  ```
+- **输入**：网页 HTML（前 8000 字符）
+- **输出**：纯净的文章内容
+
+#### 5. **Generate Script** (Doubao Chat API)
+- **功能**：将文章改写为口语化播客脚本
+- **Prompt**：
+  ```
+  你是一个专业的播客脚本撰写专家。请将以下文章内容改写成适合播客朗读的脚本。
+  要求：
+  1. 使用口语化的表达
+  2. 添加适当的过渡语
+  3. 保持内容的完整性和准确性
+  4. 控制在3000字以内
+  ```
+- **参数**：`temperature: 0.8`（增加创造性）
+- **输出**：播客脚本
+
+#### 6. **Split Text into Chunks** (Code)
+- **功能**：将脚本按标点符号智能分段
+- **分段规则**：
+  - 最大长度：300 字
+  - 优先在句号、问号、感叹号等标点处分割
+  - 避免在句子中间截断
+- **输出**：多个文本片段（带索引）
+
+#### 7. **TTS Synthesis** (Doubao TTS API)
+- **功能**：将文本片段转换为语音
+- **API 版本**：V1 (seed-tts-1.0)
+- **音色**：BV001（默认）
+- **参数**：
+  - `speed_ratio: 1.0`（语速）
+  - `volume_ratio: 1.0`（音量）
+  - `pitch_ratio: 1.0`（音调）
+- **输出**：Base64 编码的 MP3 音频片段
+
+#### 8. **Merge Audio Chunks** (Code)
+- **功能**：按顺序合并所有音频片段
+- **处理**：
+  - 按 `chunkIndex` 排序
+  - 拼接 Base64 数据
+  - 生成完整音频文件
+- **输出**：完整的播客音频（Binary）
+
+#### 9. **Respond to Webhook**
+- **功能**：返回音频文件给前端
+- **响应类型**：`audio/mp3`
+- **文件名**：`podcast_{timestamp}.mp3`
 
 ## 音色类型
 
@@ -320,26 +381,29 @@ ffmpeg：拼接音频文件
 
 ## Prompt 工程说明
 
-### 1. 内容过滤 Prompt
-- **目标**：去除广告、导航等噪音
-- **策略**：明确列出需要过滤的元素类型
-- **验证**：检查输出是否少于100字（内容不足判断）
+工作流中的 Prompt 已内嵌在 `workflow.json` 的对应节点中，无需额外配置。如需调整 Prompt，可在 n8n 编辑器中修改对应节点的 `messages` 参数。
 
-### 2. 脚本生成 Prompt
-- **目标**：生成自然流畅的口语化脚本
+### 1. 内容过滤 Prompt（Filter Content 节点）
+- **目标**：去除广告、导航等噪音，提取文章正文
 - **策略**：
-  - 添加语气词（嗯、其实、你知道吗）
-  - 控制句子长度（≤30字）
-  - 增加过渡词和引导语
+  - 明确指定需要保留的内容（标题、正文）
+  - 列出需要过滤的元素（导航、广告、页脚）
+  - 限制输入长度（前 8000 字符）避免超出 token 限制
+
+### 2. 脚本生成 Prompt（Generate Script 节点）
+- **目标**：生成自然流畅的口语化播客脚本
+- **策略**：
+  - 使用口语化表达（添加语气词、过渡语）
+  - 保持内容完整性和准确性
+  - 控制脚本长度（≤3000字）
+  - 设置 `temperature: 0.8` 增加创造性
 - **约束**：禁止音效描述、背景音乐提示
 
-### 3. 音色选择 Prompt
-- **目标**：根据内容类型自动选择音色
-- **策略**：
-  - 分析内容主题
-  - 判断语言风格
-  - 识别目标受众
-- **输出**：仅返回音色代码（无解释）
+### 3. 自定义 Prompt 建议
+如需优化播客质量，可在 n8n 编辑器中调整 Prompt：
+- **增加示例**：在 Prompt 中添加期望的输出示例
+- **细化要求**：针对特定领域（科技、财经、生活）定制表达风格
+- **控制语气**：指定播客的语气（专业、轻松、幽默）
 
 ## 故障排查
 
@@ -398,19 +462,25 @@ sudo apt install ffmpeg
 
 ```
 .
-├── workflow.json           # n8n 工作流配置（含前端页面）
-├── index.html              # 前端页面源码（已内嵌到 workflow.json）
+├── workflow.json           # n8n 工作流配置（含前端页面和 Prompt）
+├── index.html              # 前端页面源码（已内嵌到 workflow.json，保留作为参考）
 ├── .env.example            # 环境变量模板
 ├── .env                    # 实际环境变量（需自行创建）
 ├── start-n8n.sh            # n8n 启动脚本（含环境变量）
-├── prompts/                # Prompt 模板目录
-│   ├── content_filter.txt
-│   ├── script_generation.txt
-│   └── voice_selection.txt
-├── output/                 # 生成的播客文件
+├── docs/                   # 文档和截图
+│   └── images/
 ├── .n8n/                   # n8n 数据目录（自动生成）
 └── README.md
 ```
+
+### 核心文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `workflow.json` | n8n 工作流定义，包含所有节点配置、Prompt 和前端 HTML |
+| `index.html` | 前端页面源码，方便修改 UI 后重新内嵌到 workflow.json |
+| `.env.example` | 环境变量模板，包含豆包 API 配置说明 |
+| `start-n8n.sh` | 启动脚本，自动加载 .env 并启动 n8n |
 
 ## 部署方式
 
