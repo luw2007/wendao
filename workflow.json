@@ -3,8 +3,48 @@
   "nodes": [
     {
       "parameters": {
+        "httpMethod": "GET",
+        "path": "podcast",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "serve-html",
+      "name": "Serve HTML Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>闻道 - 网页转播客生成器</title>\n    <style>\n        * { box-sizing: border-box; margin: 0; padding: 0; }\n        body { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }\n        .container { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); padding: 40px; width: 100%; max-width: 500px; }\n        h1 { font-size: 24px; margin-bottom: 8px; color: #333; }\n        .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }\n        .input-group { display: flex; gap: 8px; margin-bottom: 20px; }\n        input[type=\"url\"] { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s; }\n        input[type=\"url\"]:focus { border-color: #007aff; }\n        button { padding: 12px 24px; background: #007aff; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: background 0.2s; white-space: nowrap; }\n        button:hover { background: #0056b3; }\n        button:disabled { background: #ccc; cursor: not-allowed; }\n        .status { text-align: center; padding: 20px; color: #666; display: none; }\n        .status.show { display: block; }\n        .status.error { color: #d00; }\n        .spinner { width: 24px; height: 24px; border: 3px solid #eee; border-top-color: #007aff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }\n        @keyframes spin { to { transform: rotate(360deg); } }\n        .player { display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }\n        .player.show { display: block; }\n        audio { width: 100%; margin-bottom: 12px; }\n        .download-btn { width: 100%; background: #34c759; }\n        .download-btn:hover { background: #2da44e; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <h1>🎙️ 闻道</h1>\n        <p class=\"subtitle\">输入文章链接，一键生成播客音频</p>\n        <div class=\"input-group\">\n            <input type=\"url\" id=\"url-input\" placeholder=\"https://example.com/article\" />\n            <button id=\"generate-btn\" onclick=\"generate()\">生成</button>\n        </div>\n        <div class=\"status\" id=\"status\">\n            <div class=\"spinner\"></div>\n            <span id=\"status-text\">正在生成，请稍候...</span>\n        </div>\n        <div class=\"player\" id=\"player\">\n            <audio id=\"audio\" controls></audio>\n            <button class=\"download-btn\" onclick=\"download()\">下载音频</button>\n        </div>\n    </div>\n    <script>\n        const WEBHOOK_URL = window.location.href;\n        let audioBlob = null;\n        let audioFilename = 'podcast.mp3';\n        async function generate() {\n            const urlInput = document.getElementById('url-input');\n            const btn = document.getElementById('generate-btn');\n            const status = document.getElementById('status');\n            const statusText = document.getElementById('status-text');\n            const player = document.getElementById('player');\n            const audio = document.getElementById('audio');\n            const url = urlInput.value.trim();\n            if (!url) { alert('请输入文章链接'); return; }\n            btn.disabled = true;\n            player.classList.remove('show');\n            status.classList.remove('error');\n            status.classList.add('show');\n            statusText.textContent = '正在生成，约需 1-2 分钟...';\n            try {\n                const response = await fetch(WEBHOOK_URL, {\n                    method: 'POST',\n                    headers: { 'Content-Type': 'application/json' },\n                    body: JSON.stringify({ url })\n                });\n                if (!response.ok) { throw new Error('HTTP ' + response.status); }\n                const contentType = response.headers.get('Content-Type') || '';\n                if (contentType.includes('audio/')) {\n                    audioBlob = await response.blob();\n                    audioFilename = 'podcast_' + Date.now() + '.mp3';\n                } else {\n                    const result = await response.json();\n                    if (!result.success) { throw new Error(result.error || '生成失败'); }\n                    if (result.audio_data) {\n                        const binaryStr = atob(result.audio_data);\n                        const bytes = new Uint8Array(binaryStr.length);\n                        for (let i = 0; i < binaryStr.length; i++) { bytes[i] = binaryStr.charCodeAt(i); }\n                        audioBlob = new Blob([bytes], { type: 'audio/mp3' });\n                        audioFilename = 'podcast_' + (result.timestamp || Date.now()) + '.mp3';\n                    } else { throw new Error('未返回音频数据'); }\n                }\n                audio.src = URL.createObjectURL(audioBlob);\n                status.classList.remove('show');\n                player.classList.add('show');\n            } catch (err) {\n                status.classList.add('error');\n                statusText.textContent = '错误: ' + err.message;\n                document.querySelector('.spinner').style.display = 'none';\n            } finally { btn.disabled = false; }\n        }\n        function download() {\n            if (!audioBlob) return;\n            const a = document.createElement('a');\n            a.href = URL.createObjectURL(audioBlob);\n            a.download = audioFilename;\n            a.click();\n        }\n        document.getElementById('url-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') generate(); });\n    </script>\n</body>\n</html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-html",
+      "name": "Respond HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        450,
+        100
+      ]
+    },
+    {
+      "parameters": {
         "httpMethod": "POST",
-        "path": "generate-podcast",
+        "path": "podcast",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -179,6 +219,17 @@
     }
   ],
   "connections": {
+    "Serve HTML Page": {
+      "main": [
+        [
+          {
+            "node": "Respond HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Webhook Trigger": {
       "main": [
         [

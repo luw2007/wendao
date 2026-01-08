@@ -30,10 +30,9 @@
 
 | 组件 | 说明 |
 |------|------|
-| **n8n** | 开源工作流自动化平台 |
+| **n8n** | 开源工作流自动化平台（同时提供前端页面和后端 API） |
 | **豆包 Chat API** | 字节跳动大模型，用于内容提取和脚本生成 |
 | **豆包 TTS API** | 高质量语音合成服务 |
-| **Python** | 简易 Web 服务器 |
 
 ## 安装指南
 
@@ -254,14 +253,16 @@ mkdir -p output
 #### Node: Select Voice Tone (Doubao)
 将 `prompts/voice_selection.txt` 的内容复制到该节点的 `messages` 参数中。
 
-### 7. 启动工作流
+### 7. 启动工作流并访问
 
 1. 在 n8n 中激活工作流
-2. 复制 Webhook URL（如：`http://localhost:5678/webhook/generate-podcast`）
-3. 发送 POST 请求测试：
+2. 打开浏览器访问：`http://localhost:5678/webhook/podcast`
+3. 在页面中输入文章链接，点击「生成」按钮
+
+也可以通过 API 调用：
 
 ```bash
-curl -X POST http://localhost:5678/webhook/generate-podcast \
+curl -X POST http://localhost:5678/webhook/podcast \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/article"}'
 ```
@@ -397,7 +398,8 @@ sudo apt install ffmpeg
 
 ```
 .
-├── workflow.json           # n8n 工作流配置
+├── workflow.json           # n8n 工作流配置（含前端页面）
+├── index.html              # 前端页面源码（已内嵌到 workflow.json）
 ├── .env.example            # 环境变量模板
 ├── .env                    # 实际环境变量（需自行创建）
 ├── start-n8n.sh            # n8n 启动脚本（含环境变量）
@@ -409,6 +411,28 @@ sudo apt install ffmpeg
 ├── .n8n/                   # n8n 数据目录（自动生成）
 └── README.md
 ```
+
+## 部署方式
+
+### 本地部署
+
+```bash
+./start-n8n.sh
+# 访问 http://localhost:5678/webhook/podcast
+```
+
+### 云端部署
+
+支持部署到以下平台：
+
+| 平台 | 说明 |
+|------|------|
+| **n8n Cloud** | 官方托管，约 $20/月起 |
+| **Railway** | 一键部署，有免费额度 |
+| **Render** | 免费层支持 |
+| **阿里云/腾讯云** | Docker 部署，国内访问稳定 |
+
+部署后将 `workflow.json` 导入 n8n，激活工作流即可使用。
 
 ## 许可证
 
